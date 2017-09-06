@@ -1,20 +1,10 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE TypeOperators #-}
--- |
--- Module:       Control.Monad.Freer.Exception
--- Description:  An Exception effect and handler.
--- Copyright:    (c) 2016 Allele Dev; 2017 Ixperta Solutions s.r.o.
--- License:      BSD3
--- Maintainer:   ixcom-core@ixperta.com
--- Stability:    experimental
--- Portability:  GHC specific language extensions.
+-- | An Exception effect and handler.
 --
 -- Composable handler for Exception effects. Communicates success\/failure
 -- via an 'Either' type.
---
--- Using <http://okmij.org/ftp/Haskell/extensible/Eff1.hs> as a starting point.
 module Control.Monad.Freer.Exception
     ( Exc(..)
     , throwError
@@ -23,34 +13,28 @@ module Control.Monad.Freer.Exception
     )
   where
 
-import Control.Applicative (pure)
-import Data.Either (Either(Left, Right))
-import Data.Function ((.))
+import Control.Monad.Freer
 
-import Control.Monad.Freer.Internal (Eff, Member, handleRelay, interpose, send)
-
-
---------------------------------------------------------------------------------
-                           -- Exceptions --
---------------------------------------------------------------------------------
-
--- | Exceptions of the type @e :: *@ with no resumption.
+-- | Throwing an exception never actually returns a value.
 newtype Exc e a = Exc e
 
--- | Throws an error carrying information of type @e :: *@.
-throwError :: Member (Exc e) effs => e -> Eff effs a
-throwError e = send (Exc e)
+-- | Throws an exception of type @e@.
+throwError :: Member (Exc e) r => e -> Eff r a
+throwError = send . Exc
 
 -- | Handler for exception effects. If there are no exceptions thrown, returns
--- 'Right'. If exceptions are thrown and not handled, returns 'Left', while
+-- @'Right'@. If exceptions are thrown and not handled, returns @'Left'@, while
 -- interrupting the execution of any other effect handlers.
-runError :: Eff (Exc e ': effs) a -> Eff effs (Either e a)
-runError = handleRelay (pure . Right) (\(Exc e) _k -> pure (Left e))
+runError :: Eff (Exc e ': r) a -> Eff r (Either e a)
+runError = handleRelay 
+  (pure . Right) 
+  -- Throw out the continuation because we are erroring out.
+  (\_k (Exc e) -> pure (Left e))
 
 -- | A catcher for Exceptions. Handlers are allowed to rethrow exceptions.
 catchError
-    :: Member (Exc e) effs
-    => Eff effs a
-    -> (e -> Eff effs a)
-    -> Eff effs a
-catchError m handle = interpose pure (\(Exc e) _k -> handle e) m
+    :: Member (Exc e) r
+    => Eff r a
+    -> (e -> Eff r a)
+    -> Eff r a
+catchError m handle = interpose pure (\_k (Exc e) -> handle e) m

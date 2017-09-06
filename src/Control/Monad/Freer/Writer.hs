@@ -1,47 +1,35 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeOperators #-}
--- |
--- Module:       Control.Monad.Freer.Writer
--- Description:  Composable Writer effects.
--- Copyright:    (c) 2016 Allele Dev; 2017 Ixperta Solutions s.r.o.
--- License:      BSD3
--- Maintainer:   ixcom-core@ixperta.com
--- Stability:    experimental
--- Portability:  GHC specific language extensions.
+-- | Composable Writer effects.
 --
--- 'Writer' effects, for writing\/appending values (line count, list of
--- messages, etc.) to an output. Current value of 'Writer' effect output is not
+-- @'Writer'@ effects, for writing\/appending values (line count, list of
+-- messages, etc.) to an output. Current value of the @'Writer'@ effect output is not
 -- accessible to the computation.
---
--- Using <http://okmij.org/ftp/Haskell/extensible/Eff1.hs> as a starting point.
 module Control.Monad.Freer.Writer
-    ( Writer(..)
-    , tell
-    , runWriter
-    )
-  where
+  (Writer(..)
+  ,tell
+  ,runWriter
+  ) where
 
-import Control.Applicative (pure)
-import Control.Arrow (second)
-import Data.Function (($))
-import Data.Functor ((<$>))
-import Data.Monoid (Monoid, (<>), mempty)
+import Data.Monoid ((<>))
 
-import Control.Monad.Freer.Internal (Eff, Member, handleRelay, send)
+import Control.Monad.Freer
 
 
--- | Writer effects - send outputs to an effect environment.
+-- | A @'Writer' w@ effect can write messages to be handled later.
+-- Common use cases are logging, pretty-printing, and builing up data structures.
 data Writer w a where
-    Writer :: w -> Writer w ()
+    Tell :: w -> Writer w ()
 
--- | Send a change to the attached environment.
-tell :: Member (Writer w) effs => w -> Eff effs ()
-tell w = send $ Writer w
+-- | @'Tell'@ a message to the effect.
+tell :: Member (Writer w) r => w -> Eff r ()
+tell = send . Tell
 
--- | Simple handler for 'Writer' effects.
-runWriter :: Monoid w => Eff (Writer w ': effs) a -> Eff effs (a, w)
-runWriter = handleRelay (\a -> pure (a, mempty)) $ \(Writer w) k ->
-    second (w <>) <$> k ()
+-- | Handle the messages by gluing them together with the provide @'Monoid'@ instance.
+runWriter :: Monoid w => Eff (Writer w ': r) a -> Eff r (a, w)
+runWriter = handleRelay 
+  (pure . (,mempty)) 
+  (\k (Tell w) -> (\(a,b) -> (a,w <> b)) <$> k ())

@@ -1,7 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE TypeOperators #-}
 -- |
 -- Module:       Control.Monad.Freer.Trace
@@ -23,12 +22,7 @@ module Control.Monad.Freer.Trace
     )
   where
 
-import Control.Monad ((>>), return)
-import Data.Function ((.))
-import Data.String (String)
-import System.IO (IO, putStrLn)
-
-import Control.Monad.Freer.Internal (Eff(E, Val), Member, extract, qApp, send)
+import Control.Monad.Freer
 
 
 -- | A Trace effect; takes a 'String' and performs output.
@@ -36,11 +30,9 @@ data Trace a where
     Trace :: String -> Trace ()
 
 -- | Printing a string in a trace.
-trace :: Member Trace effs => String -> Eff effs ()
+trace :: Member Trace r => String -> Eff r ()
 trace = send . Trace
 
 -- | An 'IO' handler for 'Trace' effects.
-runTrace :: Eff '[Trace] a -> IO a
-runTrace (Val x) = return x
-runTrace (E u q) = case extract u of
-    Trace s -> putStrLn s >> runTrace (qApp q ())
+runTrace :: Member IO r => Eff (Trace ': r) a -> Eff r a
+runTrace = runNat $ \(Trace s) -> send (putStrLn s)
