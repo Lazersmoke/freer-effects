@@ -60,7 +60,7 @@ snoc = (|>)
 t1 >< t2 = Node t1 t2
 {-# INLINE (><) #-}
 
--- | An alias for '(><)'
+-- | An alias for @'><'@
 append :: FTCQueue m a x -> FTCQueue m x b -> FTCQueue m a b
 append = (><)
 {-# INLINE append #-}

@@ -1,65 +1,47 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeOperators #-}
 
--- |
--- Module:       Control.Monad.Freer.Fresh
--- Description:  Generation of fresh integers as an effect.
--- Copyright:    (c) 2016 Allele Dev; 2017 Ixperta Solutions s.r.o.
--- License:      BSD3
--- Maintainer:   ixcom-core@ixperta.com
--- Stability:    experimental
--- Portability:  GHC specific language extensions.
+-- | Generation of fresh integers as an effect.
 --
 -- Composable handler for 'Fresh' effects. This is likely to be of use when
 -- implementing De Bruijn naming/scopes.
---
--- Using <http://okmij.org/ftp/Haskell/extensible/Eff1.hs> as a starting point.
-
 module Control.Monad.Freer.Fresh
-    ( Fresh(..)
-    , fresh
-    , runFresh
-    , evalFresh
-    , runFresh'
-    )
+  (Fresh(..)
+  ,fresh
+  ,runFresh
+  ,evalFresh
+  )
   where
 
-import Prelude (($!), (+))
+import Control.Monad.Freer
 
-import Control.Applicative (pure)
-import Data.Function ((.))
-import Data.Functor ((<$>))
-import Data.Int (Int)
-import Data.Tuple (fst)
+-- | The @'Fresh' f@ effect keeps a global counter of @f@ that you
+-- can pull fresh values from as an effect.
+data Fresh f a where
+  Fresh :: Fresh f f
 
-import Control.Monad.Freer.Internal (Eff, Member, handleRelayS, send)
-
-
--- | Fresh effect model.
-data Fresh a where
-    Fresh :: Fresh Int
-
--- | Request a fresh effect.
-fresh :: Member Fresh effs => Eff effs Int
+-- | Get a fresh @f@ from the global counter
+fresh :: Member (Fresh f) r => Eff r f
 fresh = send Fresh
 
--- | Handler for 'Fresh' effects, with an 'Int' for a starting value. The
--- return value includes the next fresh value.
-runFresh :: Eff (Fresh ': effs) a -> Int -> Eff effs (a, Int)
-runFresh m s =
-    handleRelayS s (\s' a -> pure (a, s')) (\s' Fresh k -> (k $! s' + 1) s') m
+-- | Handles a @'Fresh' f@ effect in the expected way. Also returns
+-- the final value of the global counter (the next to be dispensed) when it is done.
+runFresh :: Enum f => f -> Eff (Fresh f ': r) a -> Eff r (a, f)
+runFresh = handleRelayS
+  -- Put the next value in the output
+  (\s -> pure . (,s)) 
+  -- Put the next value in the output
+  (\s k Fresh -> (k $! succ s) s)
 
--- | Handler for 'Fresh' effects, with an 'Int' for a starting value. Discards
--- the next fresh value.
-evalFresh :: Eff (Fresh ': effs) a -> Int -> Eff effs a
-evalFresh = ((fst <$>) .) . runFresh
-
--- | Backward compatibility alias for 'evalFresh'.
-runFresh' :: Eff (Fresh ': effs) a -> Int -> Eff effs a
-runFresh' = evalFresh
-{-# DEPRECATED runFresh'
-    "Use `evalFresh` instead, this function will be removed in next release."
-  #-}
+-- | Just like @'runFresh'@, but it doesn't return the final value
+-- of the global counter at the end.
+evalFresh :: Enum f => f -> Eff (Fresh f ': r) a -> Eff r a
+evalFresh = runNatS $ \ !s -> \case
+  -- Put the next global state back in the counter,
+  -- and give the count we just got to the user.
+  Fresh -> pure (succ s,s)

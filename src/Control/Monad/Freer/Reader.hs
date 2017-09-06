@@ -1,8 +1,8 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 -- | Reader effects
 --
@@ -23,9 +23,6 @@ module Control.Monad.Freer.Reader
   , runReader
    )
   where
-
-import Control.Applicative (pure)
-import Data.Functor ((<$>))
 
 import Control.Monad.Freer
 
@@ -63,8 +60,8 @@ asks :: Member (Reader e) r => (e -> a) -> Eff r a
 asks = (<$> ask)
 
 -- | Handler for 'Reader' effects.
-runReader :: Eff (Reader e ': r) a -> e -> Eff r a
-runReader m e = handleRelay pure (\k Ask -> k e) m
+runReader :: e -> Eff (Reader e ': r) a -> Eff r a
+runReader e = handleRelay pure (\k Ask -> k e)
 
 -- | Locally rebind the value in the dynamic environment.
 -- The environment in the contained compuatation will be

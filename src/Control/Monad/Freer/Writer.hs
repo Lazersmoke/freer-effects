@@ -1,7 +1,9 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 -- | Composable Writer effects.
 --
@@ -30,6 +32,6 @@ tell = send . Tell
 
 -- | Handle the messages by gluing them together with the provide @'Monoid'@ instance.
 runWriter :: Monoid w => Eff (Writer w ': r) a -> Eff r (a, w)
-runWriter = handleRelay 
+runWriter = handleRelay
   (pure . (,mempty)) 
   (\k (Tell w) -> (\(a,b) -> (a,w <> b)) <$> k ())

@@ -2,6 +2,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
 -- | State effects in terms of Reader and Writer.
 --
@@ -20,5 +21,5 @@ import Control.Monad.Freer
 
 -- | Combine a @'Writer' s@ and a @'Reader' s@ into a @'State' s@, inefficiently.
 -- The semantics for this is that @'ask'@ will get you the most recent @'tell'@'d value.
-combineWriteRead :: Member (State s) r => Eff (Writer s ': Reader s ': r) a -> Eff r a
-combineWriteRead = runNat (\Ask -> get) . runNat (\(Tell s) -> put s)
+combineWriteRead :: forall s r a. Member (State s) r => Eff (Writer s ': Reader s ': r) a -> Eff r a
+combineWriteRead = runNat (\(Ask :: Reader s x) -> get) . runNat (\(Tell s :: Writer s x) -> put s)

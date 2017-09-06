@@ -1,54 +1,38 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE NoImplicitPrelude #-}
 module Main (main) where
 
-import Control.Monad ((>>=), forever, when)
-import Data.Function (($), (.))
+import Control.Monad (forever, when)
 import Data.List (intercalate, lookup, map, null)
 import Data.Maybe (fromMaybe)
 import Data.Monoid ((<>))
-import Data.String (String)
-import Data.Tuple (fst)
 import System.Environment (getArgs)
-import System.IO (IO, print, putStrLn)
 
-import Control.Monad.Freer (Eff, Member, run, runM)
+import Control.Monad.Freer
 
-import Capitalize (Capitalize, capitalize, runCapitalizeM)
+import Capitalize
 import Console
-    ( Console
-    , exitSuccess'
-    , getLine'
-    , putStrLn'
-    , runConsolePureM
-    , runConsoleM
-    )
-import Coroutine ()
-import Cut ()
-import Fresh ()
-import Trace ()
+--import Coroutine
+--import Cut
+--import Fresh
+--import Trace
 
-
--------------------------------------------------------------------------------
--- Example
--------------------------------------------------------------------------------
 capitalizingService :: (Member Console r, Member Capitalize r) => Eff r ()
 capitalizingService = forever $ do
-    putStrLn' "Send something to capitalize..."
-    l <- getLine'
-    when (null l) exitSuccess'
-    capitalize l >>= putStrLn'
--------------------------------------------------------------------------------
+  putStrLn' "Send something to capitalize..."
+  l <- getLine'
+  when (null l) exitSuccess'
+  capitalize l >>= putStrLn'
 
 mainPure :: IO ()
-mainPure = print . run
-    . runConsolePureM ["cat", "fish", "dog", "bird", ""]
-    $ runCapitalizeM capitalizingService
+mainPure = runM
+  . runConsole
+  -- . runConsolePure ["cat", "fish", "dog", "bird", ""]
+  $ runCapitalize capitalizingService
 
 mainConsoleA :: IO ()
-mainConsoleA = runM (runConsoleM (runCapitalizeM capitalizingService))
+mainConsoleA = runM (runConsole (runCapitalize capitalizingService))
 --             |     |             |              |
 --      IO () -'     |             |              |
 --     Eff '[IO] () -'             |              |
@@ -56,7 +40,7 @@ mainConsoleA = runM (runConsoleM (runCapitalizeM capitalizingService))
 --             Eff '[Capitalize, Console, IO] () -'
 
 mainConsoleB :: IO ()
-mainConsoleB = runM (runCapitalizeM (runConsoleM capitalizingService))
+mainConsoleB = runM (runCapitalize (runConsole capitalizingService))
 --             |     |             |              |
 --      IO () -'     |             |              |
 --     Eff '[IO] () -'             |              |

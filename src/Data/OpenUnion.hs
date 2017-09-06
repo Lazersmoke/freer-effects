@@ -151,6 +151,20 @@ decomp (Union 0 a) = Right $ unsafeCoerce a
 decomp (Union n a) = Left  $ Union (n - 1) a
 {-# INLINE [2] decomp #-}
 
+type family Delete e l :: [k] where
+  Delete e '[] = '[]
+  Delete e (e ': xs) = xs
+  Delete e (x ': xs) = x ': Delete e xs
+
+unDelete :: Union r a -> Union (Delete e (e ': r)) a
+unDelete u = u
+
+prod :: forall t r a. Member t r => Union r a -> Either (Union (Delete t r) a) (t a)
+prod (Union n a) = case n `compare` (elemNo @t @r) of
+  LT -> Left $ Union n a
+  EQ -> Right $ unsafeCoerce a
+  GT -> Left $ Union (n - 1) a
+
 -- | Specialized version of 'decomp' for efficiency.
 --
 -- /O(1)/

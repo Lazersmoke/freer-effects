@@ -24,7 +24,7 @@ module Control.Monad.Freer.Cut
 
 -- import Control.Monad
 import Control.Monad.Freer.Exception (Exc, throwError)
-import Control.Monad.Freer.Internal (Eff, Member)
+import Control.Monad.Freer
 
 
 data CutFalse = CutFalse

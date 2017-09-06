@@ -1,25 +1,17 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TypeOperators #-}
 module Capitalize
-    ( Capitalize
-    , capitalize
-    , runCapitalizeM
-    , runCapitalizeM'
-    )
-  where
+  (Capitalize
+  ,capitalize
+  ,runCapitalize
+  ) where
 
-import Control.Applicative (pure)
 import Data.Char (toUpper)
-import Data.Either (Either(Left, Right))
-import Data.Function (($), (.))
-import Data.List (map)
-import Data.String (String)
 
-import Control.Monad.Freer (Member, handleRelay, send)
-import Control.Monad.Freer.Internal (Eff(Val, E), decomp, qApp, tsingleton)
+import Control.Monad.Freer
 
 
 data Capitalize v where
@@ -28,11 +20,10 @@ data Capitalize v where
 capitalize :: Member Capitalize r => String -> Eff r String
 capitalize = send . Capitalize
 
-runCapitalizeM :: Eff (Capitalize ': r) w -> Eff r w
-runCapitalizeM (Val x) = pure x
-runCapitalizeM (E u q) = case decomp u of
-    Right (Capitalize s) -> runCapitalizeM (qApp q (map toUpper s))
-    Left u'              -> E u' (tsingleton (runCapitalizeM . qApp q))
+runCapitalize :: Eff (Capitalize ': r) w -> Eff r w
+runCapitalize = runNat $ \case
+  Capitalize s -> pure (map toUpper s)
 
-runCapitalizeM' :: Eff (Capitalize ': r) w -> Eff r w
-runCapitalizeM' = handleRelay pure $ \(Capitalize s) q -> q (map toUpper s)
+--runCapitalize' :: Eff (Capitalize ': r) w -> Eff r w
+--runCapitalize' = handleRelay pure $ \k -> \case
+  --(Capitalize s) -> k (map toUpper s)

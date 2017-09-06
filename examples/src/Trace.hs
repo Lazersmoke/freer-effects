@@ -1,27 +1,18 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE NoImplicitPrelude #-}
-{-# LANGUAGE NoMonomorphismRestriction #-}
-module Trace (module Trace) where
+module Trace where
 
-import Prelude ((+))
-
-import Control.Applicative ((<$>), (<*>), pure)
-import Data.Function (($))
-import Data.Int (Int)
 import Data.Monoid ((<>))
-import System.IO (IO)
-import Text.Show (Show(show))
 
-import Control.Monad.Freer (Eff, Member)
-import Control.Monad.Freer.Reader (ask, runReader)
-import Control.Monad.Freer.Trace (Trace, runTrace, trace)
+import Control.Monad.Freer
+import Control.Monad.Freer.Reader
+import Control.Monad.Freer.Trace
 
 
 -- Higher-order effectful function
 -- The inferred type shows that the Trace affect is added to the effects
 -- of r
-mapMdebug:: (Show a, Member Trace r) =>
-     (a -> Eff r b) -> [a] -> Eff r [b]
+mapMdebug:: (Show a, Member Trace r) => (a -> Eff r b) -> [a] -> Eff r [b]
 mapMdebug _ [] = pure []
 mapMdebug f (h:t) = do
   trace $ "mapMdebug: " <> show h
@@ -30,8 +21,8 @@ mapMdebug f (h:t) = do
   pure (h':t')
 
 tMd :: IO [Int]
-tMd = runTrace $ runReader (mapMdebug f [1..5]) (10::Int)
- where f x = (+) <$> ask <*> pure x
+tMd = runM . runTrace . runReader (10::Int) $ mapMdebug f [1..5]
+  where f x = (+) <$> ask <*> pure x
 {-
 mapMdebug: 1
 mapMdebug: 2
@@ -43,14 +34,14 @@ mapMdebug: 5
 
 -- duplicate layers
 tdup :: IO ()
-tdup = runTrace $ runReader m (10::Int)
- where
- m = do
-     runReader tr (20::Int)
-     tr
- tr = do
-      v <- ask
-      trace $ "Asked: " <> show (v::Int)
+tdup = runM . runTrace . runReader (10::Int) $ do
+  runReader (20::Int) talk
+  talk
+
+talk :: Members '[Trace,Reader Int] r => Eff r ()
+talk = do
+  v <- ask
+  trace $ "AskedL: " <> show (v :: Int)
 {-
 Asked: 20
 Asked: 10

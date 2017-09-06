@@ -43,11 +43,11 @@ module Control.Monad.Freer
   ,replaceRelayS
   ,runNat
   ,runNatS
-  ,pRunNat
   -- *** Low-level Functions for Building Effect Handlers
   ,linearize
   ,cataEff
   ,cataEffMember
+  ,prodEff
   ,unEff
   )
   where
@@ -93,8 +93,19 @@ cataEff
   -> (forall x. (x -> Eff (e ': es) a) -> Union es x -> q) -- ^ Handle the @'Eff'@/union case
   -> Eff (e ': es) a 
   -> q
-cataEff p e uf = unEff p $ \q u -> case decomp u of
-  Right ex -> e q ex
+cataEff p h uf = unEff p $ \q u -> case decomp u of
+  Right ex -> h q ex
+  Left u' -> uf q u'
+
+prodEff
+  :: Member e es 
+  => (a -> q) -- ^ Handle the @'Pure'@ case
+  -> (forall x. (x -> Eff es a) -> e x -> q) -- ^ Handle the @'Eff'@/effect case
+  -> (forall x. (x -> Eff es a) -> Union (Delete e es) x -> q) -- ^ Handle the @'Eff'@/union case
+  -> Eff es a 
+  -> q
+prodEff p h uf = unEff p $ \q u -> case prod u of
+  Right ex -> h q ex
   Left u' -> uf q u'
 
 -- | A version of @'cataEff'@ for working with a @'Member'@ constraint. It uses @'prj'@
@@ -253,11 +264,11 @@ handleRelayS p h = fix $ \y -> \s -> cataEff
 
 -- | Variant of 'handleRelay' simplified for the common case where you don't modify
 -- pure values, and you simply bind effects together instead of doing other things with them
-runNat :: (forall a. e a -> Eff es a) -> Eff (e ': es) b -> Eff es b
+runNat 
+  :: (forall x. e x -> Eff es x) -- ^ Natural transformation from @e@ to @'Eff' es (s,-)@, parameterized by state
+  -> Eff (e ': es) a -- ^ The input effect, with the @e@ we are transforming
+  -> Eff es a -- ^ The output effect, without the @e@ we just transformed
 runNat f = handleRelay pure (\q ex -> q =<< f ex)
-
-pRunNat :: (a -> Eff es a) -> (forall x. e x -> Eff es x) -> Eff (e ': es) a -> Eff es a
-pRunNat p f = handleRelay p (\q ex -> q =<< f ex)
 
 -- | Just like @'runNat'@, but this time you can pass some state along
 runNatS
