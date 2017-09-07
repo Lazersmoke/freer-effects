@@ -151,14 +151,15 @@ decomp (Union 0 a) = Right $ unsafeCoerce a
 decomp (Union n a) = Left  $ Union (n - 1) a
 {-# INLINE [2] decomp #-}
 
+-- | @'Delete'@ an element from a type-level list. This can break
+-- type inference, but is otherwise safe to use. Handle with care.
 type family Delete e l :: [k] where
   Delete e '[] = '[]
   Delete e (e ': xs) = xs
   Delete e (x ': xs) = x ': Delete e xs
 
-unDelete :: Union r a -> Union (Delete e (e ': r)) a
-unDelete u = u
-
+-- | @'prod'@ (as in a cattle prod) an item out of any position in the @'Union'@.
+-- Note that this returns a type with @'Delete'@ in it, so handle with care.
 prod :: forall t r a. Member t r => Union r a -> Either (Union (Delete t r) a) (t a)
 prod (Union n a) = case n `compare` (elemNo @t @r) of
   LT -> Left $ Union n a

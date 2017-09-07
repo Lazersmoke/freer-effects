@@ -1,83 +1,61 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE TypeOperators #-}
--- |
--- Module:       Control.Monad.Freer.Coroutine
--- Description:  Composable coroutine effects layer.
--- Copyright:    (c) 2016 Allele Dev; 2017 Ixperta Solutions s.r.o.
--- License:      BSD3
--- Maintainer:   ixcom-core@ixperta.com
--- Stability:    experimental
--- Portability:  GHC specific language extensions.
+-- | Composable coroutine effects layer.
 --
 -- An effect to compose functions with the ability to yield.
---
--- Using <http://okmij.org/ftp/Haskell/extensible/Eff1.hs> as a starting point.
 module Control.Monad.Freer.Coroutine
-    (
-    -- * Yield Control
-      Yield(..)
-    , yield
+  (
+  -- * Yield Control
+   Yield(..)
+  ,yield
 
-    -- * Handle Yield Effect
-    , Status(..)
-    , runC
-    , interposeC
-    , replyC
-    )
+  -- * Handle Yield Effect
+  ,Status(..)
+  ,runC
+  ,interposeC
+  ,replyC
+  )
   where
 
-import Control.Applicative (pure)
-import Data.Function (($), (.))
-import Data.Functor (Functor)
-
-import Control.Monad.Freer.Internal (Eff, Member, handleRelay, interpose, send)
+import Control.Monad.Freer
 
 
--- | A type representing a yielding of control.
---
--- Type variables have following meaning:
---
--- [@a@]
---   The current type.
---
--- [@b@]
---   The input to the continuation function.
---
--- [@c@]
---   The output of the continuation.
-data Yield a b c = Yield a (b -> c)
-  deriving (Functor)
+-- | Sending a @'Yield' a b c @ effect means this coroutine has produced
+-- an @a@, and needs a @b@ to go on to produce a @c@.
+data Yield a b c = Yield a (b -> c) deriving Functor
 
--- | Lifts a value and a function into the Coroutine effect.
-yield :: Member (Yield a b) effs => a -> (b -> c) -> Eff effs c
+-- | Build a @'Yield'@ out of a value that we are producing, and a pure
+-- function as a continuation.
+yield :: Member (Yield a b) r => a -> (b -> c) -> Eff r c
 yield x f = send (Yield x f)
 
 -- | Represents status of a coroutine.
-data Status effs a b r
-    = Done r
-    -- ^ Coroutine is done with a result value of type @r@.
-    | Continue a (b -> Eff effs (Status effs a b r))
-    -- ^ Reporting a value of the type @a@, and resuming with the value of type
-    -- @b@, possibly ending with a value of type @x@.
+data Status r a b f
+  = Done f
+  -- ^ Coroutine is done and has returned an @f@.
+  | Continue a (b -> Eff r (Status r a b f))
+  -- ^ This means the coroutine has @'Yield'@ed an @a@ value, and now
+  -- it needs a @b@ value to go on to produce its next status.
 
--- | Reply to a coroutine effect by returning the Continue constructor.
+-- | Convert a @'Yield' a b c@ into an effect that returns a @'Continue'@.
+-- This tells the user of the effect that we have provided an @a@, and
+-- expect a @b@ in order to execute the continuation.
 replyC
-  :: Yield a b c
-  -> (c -> Eff effs (Status effs a b r))
-  -> Eff effs (Status effs a b r)
-replyC (Yield a k) arr = pure $ Continue a (arr . k)
+  :: (c -> Eff r (Status r a b f))
+  -> Yield a b c
+  -> Eff r (Status r a b f)
+replyC arr (Yield a k) = pure $ Continue a (arr . k)
 
--- | Launch a coroutine and report its status.
-runC :: Eff (Yield a b ': effs) r -> Eff effs (Status effs a b r)
+-- | Run a coroutine
+runC :: Eff (Yield a b ': r) f -> Eff r (Status r a b f)
 runC = handleRelay (pure . Done) replyC
 
 -- | Launch a coroutine and report its status, without handling (removing)
--- 'Yield' from the typelist. This is useful for reducing nested coroutines.
+-- @'Yield'@ from the effects. This is useful for reducing nested coroutines.
 interposeC
-    :: Member (Yield a b) effs
-    => Eff effs r
-    -> Eff effs (Status effs a b r)
+  :: Member (Yield a b) r
+  => Eff r f
+  -> Eff r (Status r a b f)
 interposeC = interpose (pure . Done) replyC

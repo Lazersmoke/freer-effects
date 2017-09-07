@@ -24,8 +24,8 @@ module Data.FTCQueue
 -- | An @'FTCQueue m a b'@ is an efficient representation of an effectful
 -- arrow from @a@ to @b@ in the monad @m@. 
 --
--- It is represented as a type-aligned, non-empty, binary tree where the @'Leaf'@s are 
--- smaller effectful arrows, and the @'Node'@s represent left-to-right composition of effectful arrows.
+-- It is represented as a type-aligned, non-empty, binary tree where the @Leaf@s are 
+-- smaller effectful arrows, and the @Node@s represent left-to-right composition of effectful arrows.
 data FTCQueue m a b where
   -- | A single effectful arrow can stand on its own.
   Leaf :: (a -> m b) -> FTCQueue m a b

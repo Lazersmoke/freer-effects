@@ -47,7 +47,6 @@ library
       Control.Monad.Freer.Cut
       Control.Monad.Freer.Exception
       Control.Monad.Freer.Fresh
-      Control.Monad.Freer.Internal
       Control.Monad.Freer.NonDet
       Control.Monad.Freer.Reader
       Control.Monad.Freer.State

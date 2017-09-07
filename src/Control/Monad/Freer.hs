@@ -17,7 +17,6 @@ module Control.Monad.Freer
   (
   -- * Effect Monad
   Eff(..)
-  ,Arrs
   -- ** Open Union
   --
   -- | Open Union (type-indexed co-product) of effects.
@@ -57,10 +56,6 @@ import Data.Function (fix)
 import Data.FTCQueue
 import Data.OpenUnion
 
--- | An efficient representation of a function that will take an @a@ to a @b@ while
--- doing some effects from @effs@. This is isomorphic to a normal effectful arrow,
--- as witnessed by @'linearize'@.
-type Arrs r a b = FTCQueue (Eff r) a b
 
 -- | An @'Eff' r a@ is an action that does some of the effects described in
 -- @r@, then returns an @a@. @'Eff'@s can be composed using the @'Functor'@,
@@ -69,7 +64,7 @@ type Arrs r a b = FTCQueue (Eff r) a b
 data Eff r a
   = Pure a 
   -- ^ Just return a result; don't do any effects.
-  | forall x. Eff (Arrs r x a) (Union r x)
+  | forall x. Eff (FTCQueue (Eff r) x a) (Union r x)
   -- ^ Do one of the effects in @r@, which will return an @x@,
   -- then do the continuation, which might do more effects to turn that
   -- @x@ into an @a@.
@@ -83,10 +78,6 @@ unEff p e = \case
 -- | CPS case analysis for @'Eff'@, plus CPS case analysis for @'Union'@.
 -- This is a very general combinator, and most other @'Eff'@ consumption
 -- functions are written in terms of it.
---
--- While this may appear to be not fully general at first glance, because it throws
--- out the @'Union'@ in the @'Eff'@ constructor after @'decomp'@osing it, it is
--- actually recoverable by injection in the first case, or weakening in the second.
 cataEff
   :: (a -> q) -- ^ Handle the @'Pure'@ case
   -> (forall x. (x -> Eff (e ': es) a) -> e x -> q) -- ^ Handle the @'Eff'@/effect case
@@ -97,6 +88,8 @@ cataEff p h uf = unEff p $ \q u -> case decomp u of
   Right ex -> h q ex
   Left u' -> uf q u'
 
+-- | Prod an effect out of any position in the effect stack. This is very general, but
+-- it uses @'Delete'@, so type inference doesn't work as well as it should. Handle with care.
 prodEff
   :: Member e es 
   => (a -> q) -- ^ Handle the @'Pure'@ case
@@ -126,7 +119,7 @@ cataEffMember p e uf = unEff p $ \q u -> case prj u of
 -- | Turn an efficient representation of an effectful function into a normal
 -- representation of an effectful function. It's called @'linearize'@ because
 -- it converts from an efficient tree to a linear function application.
-linearize :: Arrs r a b -> a -> Eff r b
+linearize :: FTCQueue (Eff r) a b -> a -> Eff r b
 linearize q' x = case tviewl q' of
   TOne k  -> k x
   k :| t -> unEff (linearize t) (\q -> Eff (singleton q >< t)) (k x)
