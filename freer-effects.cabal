@@ -23,7 +23,7 @@ tested-with:            GHC==8.0.2, GHC==8.0.1, GHC==7.10.3, GHC==7.8.4
 category:               Control
 homepage:               https://github.com/Lazersmoke/freer-effects#readme
 bug-reports:            https://github.com/Lazersmoke/freer-effects/issues
-author:                 Sam Quinn, Allele Dev, Ixcom Core Team, and other contributors
+author:                 Allele Dev, Ixcom Core Team, Sam Quinn, and other contributors
 maintainer:             lazersmoke@gmail.com
 copyright:              (c) 2016 Allele Dev; 2017 Ixperta Solutions s.r.o.; 2017 Sam Quinn
 license:                BSD3
@@ -81,12 +81,7 @@ test-suite unit
       tests
   ghc-options: -Wall -Werror
   build-depends:
-      base >=4.7 && <5
-    , QuickCheck
-    , freer-effects
-    , tasty
-    , tasty-hunit
-    , tasty-quickcheck
+  build-depends: base >= 4.7 && < 5, hspec, freer-effects, QuickCheck
   other-modules:
       Tests.Coroutine
       Tests.Exception
@@ -95,19 +90,4 @@ test-suite unit
       Tests.NonDet
       Tests.Reader
       Tests.State
-  default-language: Haskell2010
-
-benchmark core
-  type: exitcode-stdio-1.0
-  main-is: Core.hs
-  hs-source-dirs:
-      bench
-  ghc-options: -Wall -Werror -O2
-  build-depends:
-      base >=4.7 && <5
-    , criterion
-    , extensible-effects >= 1.11 && < 1.12
-    , free
-    , freer-effects
-    , mtl
   default-language: Haskell2010

@@ -1,159 +1,65 @@
 # Freer Effects: Extensible Effects with Freer Monads
 
-[![Haskell Programming Language](https://img.shields.io/badge/language-Haskell-blue.svg)](http://www.haskell.org)
-[![BSD3 License](http://img.shields.io/badge/license-BSD3-brightgreen.svg)](https://tldrlegal.com/license/bsd-3-clause-license-%28revised%29)
-
 [![Hackage](http://img.shields.io/hackage/v/freer-effects.svg)](https://hackage.haskell.org/package/freer-effects)
-[![Stackage LTS 8](http://stackage.org/package/freer-effects/badge/lts-8?label=lts-8)](http://stackage.org/nightly/package/freer-effects)
-[![Stackage Nightly](http://stackage.org/package/freer-effects/badge/nightly?label=stackage)](http://stackage.org/nightly/package/freer-effects)
-[![Hackage Dependencies](https://img.shields.io/hackage-deps/v/freer-effects.svg)](http://packdeps.haskellers.com/feed?needle=freer-effects)
-[![Build](https://travis-ci.org/IxpertaSolutions/freer-effects.svg?branch=master)](https://travis-ci.org/IxpertaSolutions/freer-effects)
-
+[![Stackage LTS](http://stackage.org/package/freer-effects/badge/lts)](http://stackage.org/nightly/package/freer-effects)
+[![Stackage Nightly](http://stackage.org/package/freer-effects/badge/nightly)](http://stackage.org/nightly/package/freer-effects)
+[![Build Status](https://travis-ci.org/Lazersmoke/freer-effects.svg?branch=master)](https://travis-ci.org/Lazersmoke/freer-effects)
 
 # Description
 
-Library `freer-effects` (actively maintained fork of
-[`freer`](http://hackage.haskell.org/package/freer)) is an implementation of
-effect system for Haskell, which is based on the work of Oleg Kiselyov et al.:
-
-* [Freer Monads, More Extensible Effects](http://okmij.org/ftp/Haskell/extensible/more.pdf)
-* [Reflection without Remorse](http://okmij.org/ftp/Haskell/zseq.pdf)
-* [Extensible Effects](http://okmij.org/ftp/Haskell/extensible/exteff.pdf)
-
-Much of the implementation is a repackaging and cleaning up of the reference
-materials provided [here](http://okmij.org/ftp/Haskell/extensible/).
-
+Provides utilities for working with "freer" monads, and more extensible effects.
+This allows you to do things similar to traditional monad transformers, but with more flexibility.
+You can write custom effects and interpreters easily, without needing boilerplate (no `O(n^2)` instances!) or performance issues.
 
 # Features
 
 The key features of Freer are:
 
-* An efficient effect system for Haskell as a library.
+* An efficient effect system for Haskell as a library, without the poor performance of other implementations.
 * Implementations for several common Haskell monads as effects:
     * `Reader`
     * `Writer`
     * `State`
-    * `StateRW`: State in terms of Reader/Writer.
-    * `Trace`
     * `Exception`
-* Core components for defining your own Effects.
-
-
-# Example: Console DSL
-
-Here's what using Freer looks like:
-
-```haskell
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE DataKinds #-}
-module Console where
-
-import Control.Monad.Freer
-import Control.Monad.Freer.Internal
-import System.Exit hiding (ExitSuccess)
-
---------------------------------------------------------------------------------
-                               -- Effect Model --
---------------------------------------------------------------------------------
-data Console s where
-    PutStrLn    :: String -> Console ()
-    GetLine     :: Console String
-    ExitSuccess :: Console ()
-
-putStrLn' :: Member Console r => String -> Eff r ()
-putStrLn' = send . PutStrLn
-
-getLine' :: Member Console r => Eff r String
-getLine' = send GetLine
-
-exitSuccess' :: Member Console r => Eff r ()
-exitSuccess' = send ExitSuccess
-
---------------------------------------------------------------------------------
-                          -- Effectful Interpreter --
---------------------------------------------------------------------------------
-runConsole :: Eff '[Console] w -> IO w
-runConsole (Val x) = return x
-runConsole (E u q) =
-    case extract u of
-        PutStrLn msg -> putStrLn msg >>  runConsole (qApp q ())
-        GetLine      -> getLine      >>= \s -> runConsole (qApp q s)
-        ExitSuccess  -> exitSuccess
-
---------------------------------------------------------------------------------
-                             -- Pure Interpreter --
---------------------------------------------------------------------------------
-runConsolePure :: [String] -> Eff '[Console] w -> [String]
-runConsolePure inputs req =
-    reverse . snd $ run (handleRelayS (inputs, []) (\s _ -> pure s) go req)
-  where
-    go  :: ([String], [String])
-        -> Console v
-        -> (([String], [String]) -> Arr '[] v ([String], [String]))
-        -> Eff '[] ([String], [String])
-    go (is,   os) (PutStrLn msg) q = q (is, msg : os) ()
-    go (i:is, os) GetLine        q = q (is, os) i
-    go ([],   _ ) GetLine        _ = error "Not enough lines"
-    go (_,    os) ExitSuccess    _ = pure ([], os)
-```
-
-
-# Combining with Transformers
-
-You already have some [`mtl`](http://hackage.haskell.org/package/mtl) code and
-are afraid that combining effects with your current tranformer stack would not
-be possible? Package
-[`freer-effects-extra`](https://github.com/trskop/freer-effects-extra) has some
-`mtl`-related and other goodies.
-
-
-# Contributing
-
-Contributions are welcome! Documentation, examples, code, and feedback - they
-all help.
-
-
-## Developer Setup
-
-The easiest way to start contributing is to install
-[stack](https://haskellstack.org/). Stack can install GHC/Haskell for you, and
-automates common developer tasks.
-
-The key commands are:
-
-* `stack setup` – install required version of GHC compiler
-* `stack build` – builds project, dependencies are automatically resolved
-* `stack test` – builds project, its tests, and executes the tests
-* `stack bench` – builds project, its benchmarks, and executes the benchamks
-* `stack ghci` – start a REPL instance with a project modules loaded
-* `stack clean`
-* `stack haddock` – builds documentation
-
-For more information about `stack` tool can be found in its
-[documentation](https://haskellstack.org/).
-
-
-# Licensing
-
-This project is distrubted under a BSD3 license. See the included
-LICENSE file for more details.
-
+* Core components for defining your own effects and interpreters for those effects.
 
 # Acknowledgements
 
-Package `freer-effects` started as a fork of
-[freer](http://hackage.haskell.org/package/freer) authored by Allele Dev.
+History of this package, in reverse chronological order:
 
-This package would not be possible without the paper and the reference
-implementation. In particular:
+- This project, which continues maintenance of, and improves upon the Ixperta fork.
+- [IxpertaSolutions](https://www.ixperta.com/en/) maintained a [fork called `freer-effects` on GitHub](https://github.com/IxpertaSolutions/freer-effects) and [hackage](https://hackage.haskell.org/package/freer-effects) of the previous library, but then went inactive.
+- [Allele Dev](https://queertypes.com/) repackaged the original research material into [`freer` on GitLab](https://gitlab.com/queertypes/freer) and [hackage](https://hackage.haskell.org/package/freer), but then went inactive.
+- [Oleg Kiselyov](http://okmij.org/ftp/) did most of the OG research for this technology, notably coauthoring [Freer Monads, More Extensible Effects](http://okmij.org/ftp/Haskell/extensible/more.pdf) with Hiromi Ishii. 
 
-* `Data.OpenUnion` maps to
-  [OpenUnion51.hs](http://okmij.org/ftp/Haskell/extensible/OpenUnion51.hs)
-* `Data.FTCQueue` maps to
-  [FTCQueue1](http://okmij.org/ftp/Haskell/extensible/FTCQueue1.hs)
-* `Control.Monad.Freer*` maps to
-  [Eff1.hs](http://okmij.org/ftp/Haskell/extensible/Eff1.hs)
+This package would not be here without these forebearers.
 
-There will be deviations from the source.
+[Here](http://okmij.org/ftp/Haskell/extensible) is a link to Oleg Kiselyov's page on extensible effects, including reference implementations and the aforementioned paper.
+Paricularly relevant:
+
+* [Reflection without Remorse](http://okmij.org/ftp/Haskell/zseq.pdf)
+* [Extensible Effects](http://okmij.org/ftp/Haskell/extensible/exteff.pdf)
+
+# Examples
+
+See the [examples](https://github.com/Lazersmoke/freer-effects/examples).
+
+# Combining with Transformers
+
+You already have some [`mtl`](http://hackage.haskell.org/package/mtl) code and are afraid that combining effects with your current tranformer stack would not be possible? 
+Package [`freer-effects-extra`](https://github.com/trskop/freer-effects-extra) has some `mtl`-related and other goodies, but almost certainly needs to be updated (or forked) to work with this fork.
+In the mean time, you can always use a normal `mtl` stack as a single effect in your code, just like you might use `IO` normally.
+
+# Contributing
+
+Please send pull requests and open issues if you want to see something changed!
+This package should be considered unstable, so API-changing PRs are fine if they are independently useful.
+
+## Developer Setup
+
+Just use [`stack`](https://www.haskellstack.org/).
+
+# Licensing
+
+This project is distrubted under a BSD3 license. 
+See the included LICENSE file for more details.
