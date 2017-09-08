@@ -1,23 +1,22 @@
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE NoImplicitPrelude #-}
-module Tests.Loop (tests)
-  where
+module Tests.Loop (tests) where
 
+{-
 import Control.Concurrent (forkIO, killThread)
 import Control.Concurrent.QSemN (newQSemN, signalQSemN, waitQSemN)
-import Control.Monad ((>>), forever)
-import Data.Function (($), (.), fix)
-import System.IO (IO)
+import Control.Monad (forever)
+import Data.Function (fix)
 
-import Test.Tasty (TestTree, localOption, mkTimeout, testGroup)
-import Test.Tasty.HUnit (testCase)
+import Test.QuickCheck
+import Control.Monad.Freer
+-}
+import Test.Hspec
 
-import Control.Monad.Freer (Eff, Member, runM, send)
 
 
-tests :: TestTree
-tests = localOption timeout $ testGroup "Loop tests"
+tests :: Spec
+tests = describe "Looping tests" $ it "Doesn't loop forever" $ pendingWith "NYI; need to figure out looping options for HSpec"
+
+{- localOption timeout $ testGroup "Loop tests"
     [ testCase "fix loop" $ testLoop fixLoop
     , testCase "tail loop" $ testLoop tailLoop
     , testCase "forever loop" $ testLoop foreverLoop
@@ -42,3 +41,4 @@ tailLoop action = let loop = send action >> loop in loop
 
 foreverLoop :: Member IO r => IO () -> Eff r ()
 foreverLoop action = forever $ send action
+-}

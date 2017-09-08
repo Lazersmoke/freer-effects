@@ -1,39 +1,27 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE NoImplicitPrelude #-}
-module Tests.Reader (tests)
-  where
+module Tests.Reader (tests) where
 
-import Prelude (Integer, (+), (*), fromIntegral)
+import Test.Hspec
+import Test.QuickCheck
 
-import Control.Applicative ((<*>), pure)
-import Data.Eq (Eq((==)))
-import Data.Function (($), (.), flip)
-import Data.Functor ((<$>))
-import Data.Int (Int)
-
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.QuickCheck (testProperty)
-
-import Control.Monad.Freer (run)
+import Control.Monad.Freer
 import Control.Monad.Freer.Reader (ask, local, runReader)
 
-
-tests :: TestTree
-tests = testGroup "Reader tests"
-    [ testProperty "Reader passes along environment: n + x"
-        $ \n x -> testReader n x == n + x
-    , testProperty "Multiple readers work"
-        $ \i n -> testMultiReader i n == (i + 2) + fromIntegral (n + 1)
-    , testProperty "Local injects into env"
-        $ \env inc -> testLocal env inc == 2 * (env + 1) + inc
-    ]
+tests :: Spec
+tests = describe "Reader Eff" $ do
+  it "passes along environment: n + x" $
+    property $ \n x -> testReader n x == n + x
+  it "works when stacked" $
+    property $ \i n -> testMultiReader i n == (i + 2) + fromIntegral (n + 1)
+  it "allows local to inject into env" $
+    property $ \env inc -> testLocal env inc == 2 * (env + 1) + inc
 
 --------------------------------------------------------------------------------
                             -- Examples --
 --------------------------------------------------------------------------------
 testReader :: Int -> Int -> Int
-testReader n x = run . flip runReader n $ (+) <$> ask <*> pure x
+testReader n x = run . runReader n $ (+) <$> ask <*> pure x
 
 {-
 t1rr' = run t1
@@ -42,7 +30,7 @@ t1rr' = run t1
 -}
 
 testMultiReader :: Integer -> Int -> Integer
-testMultiReader i = run . flip runReader i . runReader t2
+testMultiReader i1 i2 = run . runReader i1 $ runReader i2 t2
   where
     t2 = do
         v1 <- ask
@@ -57,7 +45,7 @@ t2rrr1' = run $ runReader (runReader t2 (20 :: Float)) (10 :: Float)
 -}
 
 testLocal :: Int -> Int -> Int
-testLocal env inc = run $ runReader t3 env
+testLocal env inc = run $ runReader env t3
   where
     t3 = (+) <$> t1 <*> local (+ inc) t1
     t1 = (+) <$> ask <*> pure (1 :: Int)

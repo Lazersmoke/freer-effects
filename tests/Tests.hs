@@ -1,19 +1,9 @@
-{-# LANGUAGE NoImplicitPrelude #-}
-module Main (main)
-  where
+module Main where
 
-import Prelude ((+))
+import Test.Hspec
+import Test.QuickCheck
 
-import Control.Applicative ((<$>), (<*>), pure)
-import Data.Eq ((==))
-import Data.Function (($))
-import Data.Int (Int)
-import System.IO (IO)
-
-import Test.Tasty (TestTree, testGroup, defaultMain)
-import Test.Tasty.QuickCheck (testProperty)
-
-import Control.Monad.Freer (run)
+import Control.Monad.Freer
 
 import qualified Tests.Coroutine (tests)
 import qualified Tests.Exception (tests)
@@ -23,30 +13,25 @@ import qualified Tests.Reader (tests)
 import qualified Tests.State (tests)
 import qualified Tests.Loop (tests)
 
-
---------------------------------------------------------------------------------
-                           -- Pure Tests --
---------------------------------------------------------------------------------
 addInEff :: Int -> Int -> Int
 addInEff x y = run $ (+) <$> pure x <*> pure y
 
-pureTests :: TestTree
-pureTests = testGroup "Pure Eff tests"
-    [ testProperty "Pure run just works: (+)"
-        $ \x y -> addInEff x y == x + y
-    ]
+pureTests :: Spec
+pureTests = describe "Pure Eff (Eff '[] a)" $
+  it "adds numbers in a pure Eff the same as adding them normally" $
+    property $ \x y -> addInEff x y == x + y
 
 --------------------------------------------------------------------------------
                              -- Runner --
 --------------------------------------------------------------------------------
 main :: IO ()
-main = defaultMain $ testGroup "Tests"
-    [ pureTests
-    , Tests.Coroutine.tests
-    , Tests.Exception.tests
-    , Tests.Fresh.tests
-    , Tests.NonDet.tests
-    , Tests.Reader.tests
-    , Tests.State.tests
-    , Tests.Loop.tests
-    ]
+main = hspec . parallel . describe "Tests" $ do
+  pureTests
+  Tests.Coroutine.tests
+  Tests.Exception.tests
+  Tests.Fresh.tests
+  Tests.NonDet.tests
+  Tests.Reader.tests
+  Tests.State.tests
+  Tests.Loop.tests
+  

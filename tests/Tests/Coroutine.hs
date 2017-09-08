@@ -1,39 +1,22 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE NoImplicitPrelude #-}
-module Tests.Coroutine (tests)
-  where
+module Tests.Coroutine (tests) where
 
-import Prelude ((+), even)
+import Control.Monad (unless)
 
-import Control.Applicative ((<*>), pure)
-import Control.Monad ((>>), (>>=), unless)
-import Data.Bool (Bool, (&&))
-import Data.Eq ((==))
-import Data.Function (($), (.))
-import Data.Functor ((<$>))
-import Data.Int (Int)
-import Data.Tuple (snd)
+import Test.Hspec
+import Test.QuickCheck
 
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.QuickCheck (testProperty)
-
-import Control.Monad.Freer (Eff, Members, run)
+import Control.Monad.Freer
 import Control.Monad.Freer.Coroutine
-    ( Status(Continue, Done)
-    , Yield
-    , runC
-    , yield
-    )
 import Control.Monad.Freer.State (State, modify, runState)
 
 
-tests :: TestTree
-tests = testGroup "Coroutine Eff tests"
-    [ testProperty "Counting consecutive pairs of odds"
-        $ \list -> runTestCoroutine list == countOddDuoPrefix list
-    ]
+tests :: Spec
+tests = describe "Coroutine Eff" $
+  it "counts consecutive pairs of odds" $
+    property $ \list -> runTestCoroutine list == countOddDuoPrefix list
 
 -- | Counts number of consecutive pairs of odd elements at beginning of a list.
 countOddDuoPrefix :: [Int] -> Int
@@ -43,7 +26,7 @@ countOddDuoPrefix list = count list 0
     count _          n = n
 
 runTestCoroutine :: [Int] -> Int
-runTestCoroutine list = snd . run $ runState effTestCoroutine 0
+runTestCoroutine list = snd . run $ runState 0 effTestCoroutine
   where
     testCoroutine :: Members '[Yield () Int, State Int] r => Eff r ()
     testCoroutine = do

@@ -1,36 +1,27 @@
-{-# LANGUAGE NoImplicitPrelude #-}
-module Tests.Fresh (tests)
-  where
-
-import Prelude ((-))
+module Tests.Fresh (tests) where
 
 import Control.Monad (replicateM)
-import Data.Eq ((==))
-import Data.Function (($), (.))
-import Data.Functor ((<$>))
-import Data.Int (Int)
-import Data.List (last)
-import Data.Ord ((>))
-import Data.Tuple (fst)
 
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit ((@?=), testCase)
-import Test.Tasty.QuickCheck ((==>), testProperty)
+import Test.Hspec
+import Test.QuickCheck
 
-import Control.Monad.Freer (Eff, run)
-import Control.Monad.Freer.Fresh (fresh, runFresh)
+import Control.Monad.Freer
+import Control.Monad.Freer.Fresh
 
 
-tests :: TestTree
-tests = testGroup "Fresh tests"
-    [ testCase "Start at 0, refresh twice, yields 1"
-        $ testFresh 10 @?= 9
-    , testProperty "Freshening n times yields (n-1)"
-        $ \n -> n > 0 ==> testFresh n == (n-1)
-    ]
+tests :: Spec
+tests = describe "Fresh Eff" $ do
+  it "yields the initial value upon first freshening" $
+    property $ \n -> testFresh 1 (n :: Char) `shouldBe` n
+  it "yields 9 when incremented from 10 times from 0" $
+    testFresh 10 (0 :: Int) `shouldBe` 9
+  it "yields (n-1) after n freshenings" $
+    property $ \n -> n > 0 ==> testFresh n (0 :: Int) == (n-1)
+  it "works with Char as well" $
+    testFresh 2 'a' `shouldBe` 'b'
 
-makeFresh :: Int -> Eff r Int
-makeFresh n = fst <$> runFresh (last <$> replicateM n fresh) 0
+makeFresh :: Enum f => Int -> f -> Eff r f
+makeFresh n f = fst <$> runFresh f (last <$> replicateM n fresh)
 
-testFresh :: Int -> Int
-testFresh = run . makeFresh
+testFresh :: Enum f => Int -> f -> f
+testFresh n f = run (makeFresh n f)
