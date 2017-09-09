@@ -6,13 +6,10 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
-
 -- | Freer effects utilities:
 --
 -- * 'Eff' data type, for expressing effects.
 -- * Functions for facilitating the construction of effects and their handlers.
---
--- Using <http://okmij.org/ftp/Haskell/extensible/Eff1.hs> as a starting point.
 module Control.Monad.Freer
   (
   -- * Effect Monad

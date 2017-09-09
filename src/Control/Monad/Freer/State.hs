@@ -5,19 +5,13 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeOperators #-}
--- |
--- State effects, for state-carrying computations.
+-- | State effects, for state-carrying computations.
 --
--- Composable handler for 'State' effects. Handy for passing an updatable state
--- through a computation.
---
--- Some computations may not require the full power of 'State' effect:
+-- Some computations may not require the full power of @'State'@ effect:
 --
 -- * For a read-only state, see "Control.Monad.Freer.Reader".
 -- * To accumulate a value without using it on the way, see
 --   "Control.Monad.Freer.Writer".
---
--- Using <http://okmij.org/ftp/Haskell/extensible/Eff1.hs> as a starting point.
 module Control.Monad.Freer.State
     (
     -- * State Effect
@@ -44,7 +38,7 @@ data State s a where
 get :: Member (State s) r => Eff r s
 get = send Get
 
--- | Set the current state
+-- | Set the state
 put :: Member (State s) r => s -> Eff r ()
 put = send . Put
 
