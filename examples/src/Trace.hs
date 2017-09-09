@@ -33,9 +33,10 @@ mapMdebug: 5
 -}
 
 -- duplicate layers
+-- not allowed, disambiguated by type
 tdup :: IO ()
 tdup = runM . runTrace . runReader (10::Int) $ do
-  runReader (20::Int) talk
+  runReader (20::Integer) talk
   talk
 
 talk :: Members '[Trace,Reader Int] r => Eff r ()

@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 module Tests.Fresh (tests) where
 
 import Control.Monad (replicateM)

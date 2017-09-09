@@ -1,5 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
@@ -8,7 +8,12 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeInType #-}
 {-# LANGUAGE TypeOperators #-}
+
+-- Required to write most of the type level recursive functions
+-- used in the Membership tests.
+{-# LANGUAGE UndecidableInstances #-}
 
 -- | /These are internal definitions and should be used with caution. There are no/
 -- /guarantees that the API of this module will be preserved between minor/
@@ -34,7 +39,8 @@
 -- All operations are constant-time because they take place at compile-time.
 module Data.OpenUnion where
 
-import Data.Kind (Constraint)
+import Data.Kind (Type,Constraint)
+import Data.Type.Bool (If)
 import Data.Word (Word)
 import Unsafe.Coerce (unsafeCoerce)
 
@@ -49,7 +55,7 @@ import Unsafe.Coerce (unsafeCoerce)
 -- You can view a @'Union' r a@ as a type-level fold, where all the @'':'@ is replaced with @'Either'@s.
 -- This means that a @'Union'@ is really just a nested sum type. 
 -- This makes sense because saying \"One of a, b, or c" is the same as say \"Either a or (Either b or c)"
-data Union (r :: [ * -> * ]) a where
+data Union (r :: [Type -> Type]) a where
   Union :: {-# UNPACK #-} !Word -> t a -> Union r a
 
 -- | Creates a @'Union' r a@ with actual inhabitant @t a@.
@@ -88,34 +94,105 @@ unsafePrj n (Union n' x)
   | otherwise = Nothing
 {-# INLINE unsafePrj #-}
 
--- | The constraint @'Member' t r@ means that @t@ is in @r@ at the index @'elemNo'@.
+
+-- | Type level list concatenation
+type family (xs :: [a]) ++ (ys :: [a]) :: [a] where
+  '[] ++ ys = ys
+  (x ': xs) ++ ys = x ': (xs ++ ys)
+
+-- | Peano
+data Nat = S Nat | Z
+
+-- | A single entry of a preorder traversal of a type
+data PreordEntry = App | forall a. Con a
+
+-- | A preorder traversal of a type:
+--
+-- >>> Preord (Maybe Int)
+-- '[App, Con Maybe, Con Int]
+-- 
+-- >>> Preord (Maybe f)
+-- '[App, Con Maybe, Con f]
+type family Preord (x :: a) :: [PreordEntry] where
+  -- The preorder traversal of an application is
+  -- an @''App'@ of the constructor's preorder
+  -- traveral to the contructee's.
+  Preord (f x) = 'App ': (Preord f ++ Preord x)
+  -- The preorder traversal of a non-application
+  -- is just itself in a @''Con'@
+  Preord x = '[ 'Con x]
+
+-- | Type level equality test (structural)
+type family (a :: x) == (b :: y) :: Bool where
+  x == x = 'True
+  _ == _ = 'False
+
+-- | Map a list of types to a pair of its index in the list, and its preorder traversal.
+-- We do both at once because its faster ;-)
+type family PreordList (xs :: [a]) (i :: Nat) :: [(Nat,[PreordEntry])] where
+  PreordList '[] _ = '[]
+  PreordList (x ': xs) i = '(i,Preord x) ': PreordList xs ('S i)
+
+-- | Narrow down our search by keeping only the preords with a first entry matching ours.
+-- This preserves the /original/ indexes of the traversals so we can index to them later.
+-- It also throws away the entry that was matched upon finding it, leaving the tail of the
+-- traversal.
+type family Narrow (e :: PreordEntry) (xs :: [(Nat,[PreordEntry])]) :: [(Nat,[PreordEntry])] where
+  Narrow _ '[] = '[]
+  Narrow e' ('(i,e ': es) ': rest) = If (e' == e) '[ '(i,es)] '[] ++ Narrow e' rest
+
+-- | Find the inex of a preorder in a @'PreordList'@'d list.
+type family Find' (target :: [PreordEntry]) (haystack :: [(Nat,[PreordEntry])]) :: Nat where
+  -- If there is only one thing in the haystack, it must be the needle :P
+  Find' _ '[ '(i,_)] = i
+  Find' e ('(i,e) ': _) = i
+  -- Recursively narrow the haystack wrt the target until we end up with only one item
+  Find' (e ': es) ess = Find' es (Narrow e ess)
+
+-- | Convert from a normal type in a normal list of types to preorder traversals
+type Find x ys = Find' (Preord x) (PreordList ys 'Z)
+
+-- | The constraint @'MemberAt' i t r@ means that @t@ is in @r@ at the index @i@.
+class MemberAt (i :: Nat) (t :: Type -> Type) (r :: [Type -> Type]) where
+
+instance MemberAt 'Z t (t ': r) where
+
+instance MemberAt n t r => MemberAt ('S n) t (x ': r) where
+
+-- | Reify a @'Nat'@ into a @'Word'@. Will overflow with large @'Nat'@s.
+class WordFor (n :: Nat) where
+  wordFor :: Word
+
+-- | @'Z' = 0@
+instance WordFor 'Z where
+  wordFor = 0
+
+-- | @'S' n = succ n@
+instance WordFor n => WordFor ('S n) where
+  wordFor = succ (wordFor @n)
+
+-- | The constraint @'Member' t r@ means that @t@ is in @r@ at the index @'Find' t r@,
+-- and that you can reify that index into a @'Word'@ with @'wordFor' \@('Find' t r)@.
 --
 -- This is a compile-time computation without run-time overhead because everything
 -- here takes place on the type level.
-class Member (t :: * -> *) (r :: [* -> *]) where
-  -- | The index of @t@ in @r@.
-  --
-  -- This is disambiguated via Type Application at use sites, 
-  -- see the implementations of @'prj'@ and @'inj'@.
-  --
-  -- /O(1)/
-  elemNo :: Word
+type Member t r = (WordFor (Find t r),MemberAt (Find t r) t r)
 
 -- | Base case. If @t@ is at the head of @r@, then the index is 0.
-instance Member t (t ': tail'r) where
-  elemNo = 0
+--instance Member t (t ': tail'r) where
+  --elemNo = 0
 
 -- | Inductive case. Read: @t@ being a @'Member'@ of @r@ __implies that__
 -- @t@ is also a @'Member'@ of the union of some @arbitrary@ value and @r@. 
 -- The proof of this statement is that the index of @t@ in @arbitrary ': r@
 -- will be the index of @t@ in @r@, plus 1.
-instance {-# OVERLAPPABLE #-} Member t r => Member t (arbitrary ': r) where
-  elemNo = 1 + elemNo @t @r
+--instance {-# OVERLAPPABLE #-} Member t r => Member t (arbitrary ': r) where
+  --elemNo = 1 + elemNo @t @r
 
 -- | If we have proof that @t@ is a @'Member'@ of @r@ at the index @'elemNo'@,
 -- then we can safely make a @'Union' r a@ out of a @t a@ by using the index.
 inj :: forall t r a. Member t r => t a -> Union r a
-inj = unsafeInj (elemNo @t @r)
+inj = unsafeInj (wordFor @(Find t r))
 
 -- | If we have proof that @t@ is a @'Member'@ of @r@ at the index @'elemNo'@,
 -- then we can attempt to project the actual inhabitant of type @t a@ from a
@@ -125,7 +202,7 @@ inj = unsafeInj (elemNo @t @r)
 -- @'Union' r a@ is a @t a@. It just means that it /might/ be, which is why
 -- the return type of @'prj'@ is @'Maybe' (t a)@ and not @t a@.
 prj :: forall t r a. Member t r => Union r a -> Maybe (t a)
-prj = unsafePrj (elemNo @t @r)
+prj = unsafePrj (wordFor @(Find t r))
 
 -- | Easy way to have multiple @'Member'@s in a single effect.
 --
@@ -161,7 +238,7 @@ type family Delete e l :: [k] where
 -- | @'prod'@ (as in a cattle prod) an item out of any position in the @'Union'@.
 -- Note that this returns a type with @'Delete'@ in it, so handle with care.
 prod :: forall t r a. Member t r => Union r a -> Either (Union (Delete t r) a) (t a)
-prod (Union n a) = case n `compare` (elemNo @t @r) of
+prod (Union n a) = case n `compare` (wordFor @(Find t r)) of
   LT -> Left $ Union n a
   EQ -> Right $ unsafeCoerce a
   GT -> Left $ Union (n - 1) a
