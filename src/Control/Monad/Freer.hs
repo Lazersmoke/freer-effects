@@ -59,18 +59,18 @@ module Control.Monad.Freer
   ,linearize
   ,unEff
   ,cataEff
+  ,singleton
+  ,(|>)
 
-  -- * Re-exports
-  -- ** Open Union
-  -- | Used for tracking the effects present in a given @'Eff'@
+  -- * Open Union
+  --
+  -- | Provides @'Member'@
   ,module Data.OpenUnion
-  -- ** Fast Type-aligned Queue
-  -- | Used for efficiently storing the continuation in an @'Eff'@
-  ,module Data.FTCQueue
   )
   where
 
 import Data.Function (fix)
+import Control.Arrow
 
 import Data.FTCQueue
 import Data.OpenUnion
@@ -89,7 +89,7 @@ data Eff (r :: [* -> *]) (a :: *) where
   -- | Do one of the effects in @r@, which will return an @x@,
   -- then do the continuation, which might do more effects to turn that
   -- @x@ into an @a@.
-  Eff :: (FTCQueue (Eff r) x a) -> (Union r x) -> Eff r a
+  Eff :: (FTCQueue (Kleisli (Eff r)) x a) -> (Union r x) -> Eff r a
 
 -- | CPS case analysis for @'Eff'@, up to its constructors.
 unEff :: (a -> q) -> (forall x. (x -> Eff r a) -> Union r x -> q) -> Eff r a -> q
@@ -127,10 +127,10 @@ cataEffMember p e uf = unEff p $ \q u -> case prj u of
 -- | Turn an efficient representation of an effectful function into a normal
 -- representation of an effectful function. It's called @'linearize'@ because
 -- it converts from an efficient tree to a linear function application.
-linearize :: FTCQueue (Eff r) a b -> a -> Eff r b
-linearize q' x = case tviewl q' of
-  TOne k  -> k x
-  k :| t -> unEff (linearize t) (\q -> Eff (singleton q >< t)) (k x)
+linearize :: FTCQueue (Kleisli (Eff r)) a b -> a -> Eff r b
+linearize q' x = case viewl q' of
+  One k -> runKleisli k x
+  Cons k t -> unEff (linearize t) (\q -> Eff (singleton q >< t)) (runKleisli k x)
 
 instance Functor (Eff r) where
   fmap f (Pure x) = Pure (f x)
@@ -162,6 +162,13 @@ instance Monad (Eff r) where
 -- the other effects that may be present.
 send :: Member e r => e a -> Eff r a
 send = Eff (singleton Pure) . inj
+
+-- | Generalize an effect to work on a larger effect stack.
+-- It does this by inserting a bogus effect that will never be used into the effect list.
+raise :: Eff r a -> Eff (arbitrary ': r) a
+raise = unEff 
+  pure
+  (\q u -> Eff (singleton $ raise . q) (weaken u))
 
 -- | An @'Eff' '[] a@ is an effectful action without any effects, which
 -- means it is just a @'Pure'@ value, so we can extract that value for free.
@@ -262,9 +269,10 @@ interpose p h = fix $ \y -> cataEffMember
   (h . (y .))
   (\q u -> Eff (singleton $ y . q) u)
 
--- | Generalize an effect to work on a larger effect stack.
--- It does this by inserting a bogus effect that will never be used into the effect list.
-raise :: Eff r a -> Eff (arbitrary ': r) a
-raise = unEff 
-  pure
-  (\q u -> Eff (singleton $ raise . q) (weaken u))
+-- | @'singleton''@ specialized to the correct type for working with @'Eff'@
+singleton :: (a -> Eff r b) -> FTCQueue (Kleisli (Eff r)) a b
+singleton = singleton' . Kleisli
+
+-- | @'snoc'@ specialized to the correct type for working with @'Eff'@
+(|>) :: FTCQueue (Kleisli (Eff r)) a x -> (x -> Eff r b) -> FTCQueue (Kleisli (Eff r)) a b
+(|>) = (. Kleisli) . snoc
