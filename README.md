@@ -32,6 +32,8 @@ History of this package, in reverse chronological order:
 - [Allele Dev](https://queertypes.com/) repackaged the original research material into [`freer` on GitLab](https://gitlab.com/queertypes/freer) and [hackage](https://hackage.haskell.org/package/freer), but then went inactive.
 - [Oleg Kiselyov](http://okmij.org/ftp/) did most of the OG research for this technology, notably coauthoring [Freer Monads, More Extensible Effects](http://okmij.org/ftp/Haskell/extensible/more.pdf) with Hiromi Ishii. 
 
+Special thanks to [Andras Kovacs](https://github.com/AndrasKovacs) whom I've shamelessly stolen the [GHC 8 TypeInType-powered effect inference engine](https://github.com/AndrasKovacs/misc-stuff/blob/master/haskell/Eff/EffInference.hs) from.
+
 This package would not be here without these forebearers.
 
 [Here](http://okmij.org/ftp/Haskell/extensible) is a link to Oleg Kiselyov's page on extensible effects, including reference implementations and the aforementioned paper.
