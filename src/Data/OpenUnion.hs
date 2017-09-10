@@ -40,9 +40,10 @@
 module Data.OpenUnion where
 
 import Data.Kind (Type,Constraint)
-import Data.Type.Bool (If)
 import Data.Word (Word)
 import Unsafe.Coerce (unsafeCoerce)
+
+import GHC.TypeLits (TypeError,ErrorMessage(..))
 
 -- | A @'Union' r a@ is a value that is one of the type constructors in @r@ applied to @a@,
 -- but we don't know which one. For example, a @'Union' '['Maybe',[],'IO'] 'Int'@ is either a
@@ -139,18 +140,28 @@ type family PreordList (xs :: [a]) (i :: Nat) :: [(Nat,[PreordEntry])] where
 -- traversal.
 type family Narrow (e :: PreordEntry) (xs :: [(Nat,[PreordEntry])]) :: [(Nat,[PreordEntry])] where
   Narrow _ '[] = '[]
-  Narrow e' ('(i,e ': es) ': rest) = If (e' == e) '[ '(i,es)] '[] ++ Narrow e' rest
+  Narrow e ('(i,e ': es) ': rest) = '(i,es) ': Narrow e rest
+  Narrow e (_ ': rest) = Narrow e rest
 
 -- | Find the inex of a preorder in a @'PreordList'@'d list.
-type family Find' (target :: [PreordEntry]) (haystack :: [(Nat,[PreordEntry])]) :: Nat where
+type family Find' (origTarget :: [PreordEntry]) (origHaystack :: [(Nat,[PreordEntry])]) (target :: [PreordEntry]) (haystack :: [(Nat,[PreordEntry])]) :: Nat where
   -- If there is only one thing in the haystack, it must be the needle :P
-  Find' _ '[ '(i,_)] = i
-  Find' e ('(i,e) ': _) = i
+  Find' _ _ _ '[ '(i,_)] = i
   -- Recursively narrow the haystack wrt the target until we end up with only one item
-  Find' (e ': es) ess = Find' es (Narrow e ess)
+  Find' ot oh (e ': es) ess = Find' ot oh es (Narrow e ess)
+  Find' ot oh '[] es = TypeError (
+    'Text "Ran out of preorder entries while narrowing: " ':<>: 'ShowType es ':$$: 
+    'Text "This means we have no further information with which to disambiguate the remaining possible matches :(" ':$$:
+    'Text "Original target: " ':<>: 'ShowType ot ':$$:
+    'Text "Original haystack: " ':<>: 'ShowType oh)
+  Find' ot oh e '[] = TypeError (
+    'Text "Exhausted all possible matches for: " ':<>: 'ShowType e ':$$:
+    'Text "This means we have run out of possible matches, so the target is simply absent from the list :(" ':$$:
+    'Text "Original target: " ':<>: 'ShowType ot ':$$:
+    'Text "Original haystack: " ':<>: 'ShowType oh)
 
 -- | Convert from a normal type in a normal list of types to preorder traversals
-type Find x ys = Find' (Preord x) (PreordList ys 'Z)
+type Find x ys = Find' (Preord x) (PreordList ys 'Z) (Preord x) (PreordList ys 'Z)
 
 -- | The constraint @'MemberAt' i t r@ means that @t@ is in @r@ at the index @i@.
 class MemberAt (i :: Nat) (t :: Type -> Type) (r :: [Type -> Type]) where
@@ -158,6 +169,13 @@ class MemberAt (i :: Nat) (t :: Type -> Type) (r :: [Type -> Type]) where
 instance MemberAt 'Z t (t ': r) where
 
 instance MemberAt n t r => MemberAt ('S n) t (x ': r) where
+
+-- | Easy way to have multiple @'Member'@s in a single effect.
+--
+-- > 'Members' '[A,B,C] r = ('Member' A r, 'Member' B r, 'Member' C r)
+type family Members m r :: Constraint where
+  Members (t ': c) r = (Member t r, Members c r)
+  Members '[] r = ()
 
 -- | Reify a @'Nat'@ into a @'Word'@. Will overflow with large @'Nat'@s.
 class WordFor (n :: Nat) where
@@ -176,7 +194,7 @@ instance WordFor n => WordFor ('S n) where
 --
 -- This is a compile-time computation without run-time overhead because everything
 -- here takes place on the type level.
-type Member t r = (WordFor (Find t r),MemberAt (Find t r) t r)
+type Member t r = (MemberAt (Find t r) t r,WordFor (Find t r))
 
 -- | Base case. If @t@ is at the head of @r@, then the index is 0.
 --instance Member t (t ': tail'r) where
@@ -203,13 +221,6 @@ inj = unsafeInj (wordFor @(Find t r))
 -- the return type of @'prj'@ is @'Maybe' (t a)@ and not @t a@.
 prj :: forall t r a. Member t r => Union r a -> Maybe (t a)
 prj = unsafePrj (wordFor @(Find t r))
-
--- | Easy way to have multiple @'Member'@s in a single effect.
---
--- > 'Members' '[A,B,C] r = ('Member' A r, 'Member' B r, 'Member' C r)
-type family Members m r :: Constraint where
-  Members (t ': c) r = (Member t r, Members c r)
-  Members '[] r = ()
 
 -- | A @'Union'@ is like a nested @'Either'@, so we can peel back
 -- one layer of @'Either'@ at a time to get @'Either'@ a reduced
