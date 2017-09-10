@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 module Tests.Fresh (tests) where
 
@@ -21,7 +22,7 @@ tests = describe "Fresh Eff" $ do
   it "works with Char as well" $
     testFresh 2 'a' `shouldBe` 'b'
 
-makeFresh :: Enum f => Int -> f -> Eff r f
+makeFresh :: Enum f => Int -> f -> Eff '[] f
 makeFresh n f = fst <$> runFresh f (last <$> replicateM n fresh)
 
 testFresh :: Enum f => Int -> f -> f
