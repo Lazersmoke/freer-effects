@@ -4,26 +4,43 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
--- | Freer effects utilities:
+-- | This the main module of @freer-effects@, and the one you will import most often.
 --
--- * 'Eff' data type, for expressing effects.
--- * Functions for facilitating the construction of effects and their handlers.
+-- This module provides:
+--
+-- * The @'Eff'@ type, representing an effectful computation
+-- * Functions for writing effectful computations, like @'send'@
+-- * Functions for creating effect handlers, like @'interpret'@
+--
+-- Generally, your code will look like this:
+--
+-- @
+--   main :: IO ()
+--   main = runM . runReader deafultConfig . evalState initialAppState $ app
+--
+--   app :: Members '[IO,Reader AppConfig,State AppState] r => Eff r ()
+--   app = do
+--     config <- ask -- Doing 'ask' here will get the AppConfig
+--     send $ putStrLn $ "The foo option in the config is: " ++ show (foo config)
+--     appState <- get -- Doing 'get' or 'put' here will access the AppState
+--     send $ putStrLn "I'm in an effect :D" -- Prints the message
+--     ...
+--
+--   defaultConfig :: AppConfig
+--   defaultConfig = ...
+--
+--   initialAppState :: AppState
+--   initialAppState = ...
+-- @
 module Control.Monad.Freer
   (
-  -- * Effect Monad
+  -- * Building Effects
   Eff(..)
-  -- ** Open Union
-  --
-  -- | Open Union (type-indexed co-product) of effects.
-  ,module Data.OpenUnion
-  -- ** Fast Type-aligned Queue
-  --
-  -- | Fast type-aligned queue optimized to effectful functions of type
-  -- @(a -> m b)@.
-  ,module Data.FTCQueue
-  -- ** Sending Arbitrary Effect
+  -- ** Creating @'Eff'@s
   ,send
   -- ** Lifting Effect Stacks
   ,raise
@@ -32,19 +49,24 @@ module Control.Monad.Freer
   ,run
   ,runM
   -- ** Building Effect Handlers
+  ,interpret
+  ,reinterpret
   ,handleRelay
-  ,handleRelayS
-  ,interpose
   ,replaceRelay
-  ,replaceRelayS
-  ,runNat
-  ,runNatS
+  ,consumeEffect
+  ,interpose
   -- *** Low-level Functions for Building Effect Handlers
   ,linearize
-  ,cataEff
-  ,cataEffMember
-  ,prodEff
   ,unEff
+  ,cataEff
+
+  -- * Re-exports
+  -- ** Open Union
+  -- | Used for tracking the effects present in a given @'Eff'@
+  ,module Data.OpenUnion
+  -- ** Fast Type-aligned Queue
+  -- | Used for efficiently storing the continuation in an @'Eff'@
+  ,module Data.FTCQueue
   )
   where
 
@@ -54,17 +76,20 @@ import Data.FTCQueue
 import Data.OpenUnion
 
 
--- | An @'Eff' r a@ is an action that does some of the effects described in
--- @r@, then returns an @a@. @'Eff'@s can be composed using the @'Functor'@,
--- @'Applicative'@, and @'Monad'@ instances, provided they are all have the same
+-- | An @'Eff' r a@ is an action that can perform the effects described in
+-- @r@, and returns an @a@. @'Eff'@s can be composed using the @'Functor'@,
+-- @'Applicative'@, and @'Monad'@ instances, provided they all have the same
 -- @r@.
-data Eff r a
-  = Pure a 
-  -- ^ Just return a result; don't do any effects.
-  | forall x. Eff (FTCQueue (Eff r) x a) (Union r x)
-  -- ^ Do one of the effects in @r@, which will return an @x@,
+--
+-- You should construct @'Eff'@s using @'send'@, not with the constructors directly.
+-- They /are/ safe to use, just very annoying.
+data Eff (r :: [* -> *]) (a :: *) where
+  -- | Just return a result; don't do any effects.
+  Pure :: a -> Eff r a
+  -- | Do one of the effects in @r@, which will return an @x@,
   -- then do the continuation, which might do more effects to turn that
   -- @x@ into an @a@.
+  Eff :: (FTCQueue (Eff r) x a) -> (Union r x) -> Eff r a
 
 -- | CPS case analysis for @'Eff'@, up to its constructors.
 unEff :: (a -> q) -> (forall x. (x -> Eff r a) -> Union r x -> q) -> Eff r a -> q
@@ -85,19 +110,6 @@ cataEff p h uf = unEff p $ \q u -> case decomp u of
   Right ex -> h q ex
   Left u' -> uf q u'
 
--- | Prod an effect out of any position in the effect stack. This is very general, but
--- it uses @'Delete'@, so type inference doesn't work as well as it should. Handle with care.
-prodEff
-  :: Member e es 
-  => (a -> q) -- ^ Handle the @'Pure'@ case
-  -> (forall x. (x -> Eff es a) -> e x -> q) -- ^ Handle the @'Eff'@/effect case
-  -> (forall x. (x -> Eff es a) -> Union (Delete e es) x -> q) -- ^ Handle the @'Eff'@/union case
-  -> Eff es a 
-  -> q
-prodEff p h uf = unEff p $ \q u -> case prod u of
-  Right ex -> h q ex
-  Left u' -> uf q u'
-
 -- | A version of @'cataEff'@ for working with a @'Member'@ constraint. It uses @'prj'@
 -- instead of @'decomp'@ to use the additional information in the @'Member'@
 -- dictionary.
@@ -111,7 +123,6 @@ cataEffMember
 cataEffMember p e uf = unEff p $ \q u -> case prj u of
   Just tx -> e q tx
   Nothing -> uf q u
-
 
 -- | Turn an efficient representation of an effectful function into a normal
 -- representation of an effectful function. It's called @'linearize'@ because
@@ -144,9 +155,12 @@ instance Monad (Eff r) where
   Eff q u >>= k = Eff (q |> k) u
   {-# INLINE (>>=) #-}
 
--- | Create an effectful action that can be composed easily from a single 
--- effectful action. This is the most common way to create an @'Eff'@.
-send :: Member eff r => eff a -> Eff r a
+-- | Create an effectful action from a single effect action.
+-- Notice that the type allows the result of @'send'@ to be composed
+-- easily with other effects, since it only requires that the provided
+-- effect be a member of the overall set of effects, but does not limit
+-- the other effects that may be present.
+send :: Member e r => e a -> Eff r a
 send = Eff (singleton Pure) . inj
 
 -- | An @'Eff' '[] a@ is an effectful action without any effects, which
@@ -175,34 +189,51 @@ runM = fix $ \y -> unEff
   pure
   (\q u -> extract u >>= y . q)
 
+-- | The simplest way to write an effect handler.
+-- Given a way to rewrite a given effect @e@ in terms of the rest of the 
+-- effects in the the list @es@, interpret @e@ in terms of @es@.
+interpret 
+  :: (forall x. e x -> Eff es x) -- ^ Natural transformation from @e@ to @'Eff' es@
+  -> Eff (e ': es) a -- ^ The input effect, with the @e@ we are interpreting
+  -> Eff es a -- ^ The output effect, without the @e@ we just interpreted
+interpret n = handleRelay pure (\q ex -> q =<< n ex)
 
--- | Just like @'replaceRelay'@, but this time you can pass some state along
-replaceRelayS
-  :: (s -> a -> Eff (v ': effs) w)
-  -> (forall x. s -> (s -> x -> Eff (v ': effs) w) -> t x -> Eff (v ': effs) w)
-  -> s
-  -> Eff (t ': effs) a
-  -> Eff (v ': effs) w
-replaceRelayS p h = fix $ \y -> \s -> cataEff
-  (p s)
-  (\q -> h s (\s' -> y s' . q))
-  (\q u -> Eff (singleton $ y s . q) (weaken u))
+-- | A simple way to write an effect handler.
+-- Given a way to rewrite an effect @e@ as an effect @f@, replace
+-- @e@ with @f@ at the top of the effect stack.
+reinterpret
+  :: forall fs es e a. Weakens fs
+  => (forall x. e x -> Eff (fs ++ es) x) -- ^ Natural transformation from @e@ to @'Eff' (fs ++ es) x@
+  -> Eff (e ': es) a -- ^ The input effect, with the @e@ we are reinterpreting as @fs@
+  -> Eff (fs ++ es) a -- ^ The output effect, with the @fs@ we just reinterpreted @e@ into
+reinterpret n = replaceRelay @fs pure (\q ex -> q =<< n ex)
+
+-- | Handle (remove) a single effect (@e@) by providing handling functions for it in terms of the remaining effects (@es@).
+-- You are also allowed to change the resulting return type from @a@ to @b@, and to introduce effects in @es@
+-- for @'Pure'@ values in @e@.
+--
+-- Alternate definition in terms of @'handleRelayS'@, with the state as @()@:
+--
+-- > 'handleRelay' p h = 'handleRelayS' (\() -> p) (\() ex q -> h ex (q ())) ()
+handleRelay
+  :: (a -> Eff es b) -- ^ Handle a @'Pure'@
+  -> (forall x. (x -> Eff es b) -> e x -> Eff es b) -- ^ Handle an effect, given a continuation
+  -> Eff (e ': es) a -- ^ The input effect, including the @e@ we are handling.
+  -> Eff es b -- ^ The output effect, without the @e@ we just handled.
+handleRelay = consumeEffect id
 
 -- | Convert one effect @e@ to another effect @f@ at the top of the effect stack.
 -- You can also modify the return type.
 replaceRelay
-  :: (a -> Eff (f ': es) b) -- ^ Convert @'Pure'@
-  -> (forall x. (x -> Eff (f ': es) b) -> e x -> Eff (f ': es) b)
+  :: forall fs es e a b. Weakens fs
+  => (a -> Eff (fs ++ es) b) -- ^ Convert @'Pure'@
+  -> (forall x. (x -> Eff (fs ++ es) b) -> e x -> Eff (fs ++ es) b)
   -- ^ Convert @'Eff'@
   -> Eff (e ': es) a
-  -> Eff (f ': es) b
-replaceRelay = consumeEffect weaken
---replaceRelay p h = fix $ \y -> cataEff
-  --p
-  --(\ex q -> h ex (y . q))
-  --(\u q -> Eff (weaken u) (singleton $ y . q))
+  -> Eff (fs ++ es) b
+replaceRelay = consumeEffect (weakens @fs)
 
--- ^ Consume an effect of type @e@ by handling every possible case.
+-- | Consume an effect of type @e@ by handling every possible case.
 consumeEffect
   :: (forall x. Union es x -> Union es' x) 
   -- ^ Convert a @'Union'@ of the remaning effects to a @'Union'@ of the final effects.
@@ -218,58 +249,6 @@ consumeEffect uf p h = fix $ \y -> cataEff
   (h . (y .))
   (\q -> Eff (singleton $ y . q) . uf)
 
--- | Handle (remove) a single effect (@e@) by providing handling functions for it in terms of the remaining effects (@es@).
--- You are also allowed to change the resulting return type from @a@ to @b@, and to introduce effects in @es@
--- for @'Pure'@ values in @e@.
---
--- Alternate definition in terms of @'handleRelayS'@, with the state as @()@:
---
--- > 'handleRelay' p h = 'handleRelayS' (\() -> p) (\() ex q -> h ex (q ())) ()
-handleRelay
-  :: (a -> Eff es b) -- ^ Handle a @'Pure'@
-  -> (forall x. (x -> Eff es b) -> e x -> Eff es b) -- ^ Handle an effect, given a continuation
-  -> Eff (e ': es) a -- ^ The input effect, including the @e@ we are handling.
-  -> Eff es b -- ^ The output effect, without the @e@ we just handled.
-handleRelay = consumeEffect id
---handleRelay p h = fix $ \y -> cataEff 
-  --p 
-  --(\ex q -> h ex (y . q)) 
-  --(\u q -> Eff u (singleton $ y . q))
-
-
--- | Just like @'handleRelay'@, but this time you can pass some state
--- along as well as just recurse.
-handleRelayS
-  :: (s -> a -> Eff es b) -- ^ Handle a @'Pure'@, parameterized by the state.
-  -> (forall x. s -> (s -> x -> Eff es b) -> e x -> Eff es b)
-  -> s -- ^ Initial state
-  -- ^ Handle an effect, parameterized by the state, and given a continuation.
-  -- You should pass the updated state to the continuation.
-  -> Eff (e ': es) a -- ^ The input effect, with the @e@ we are handling
-  -> Eff es b -- ^ The output effect, without the @e@ we just handled
-handleRelayS p h = fix $ \y -> \s -> cataEff 
-  (p s) 
-  (\q -> h s (\s' -> y s' . q)) 
-  (\q -> Eff (singleton $ y s . q))
-
--- | Variant of 'handleRelay' simplified for the common case where you don't modify
--- pure values, and you simply bind effects together instead of doing other things with them
-runNat 
-  :: (forall x. e x -> Eff es x) -- ^ Natural transformation from @e@ to @'Eff' es (s,-)@, parameterized by state
-  -> Eff (e ': es) a -- ^ The input effect, with the @e@ we are transforming
-  -> Eff es a -- ^ The output effect, without the @e@ we just transformed
-runNat f = handleRelay pure (\q ex -> q =<< f ex)
-
--- | Just like @'runNat'@, but this time you can pass some state along
-runNatS
-  :: (forall a. s -> e a -> Eff es (s, a)) -- ^ Natural transformation from @e@ to @'Eff' es (s,-)@, parameterized by state
-  -> s -- ^ Initial state
-  -> Eff (e ': es) b -- ^ The input effect, with the @e@ we are transforming
-  -> Eff es b -- ^ The output effect, without the @e@ we just transformed
-runNatS f = handleRelayS 
-  (\_s -> pure) 
-  (\s' q e -> (f s' e >>=) . uncurry $ q)
-
 -- | Intercept the request and possibly reply to it, but leave it unhandled.
 -- This is black magic, with no obvious use case, but I'm leaving it here anyway.
 interpose
@@ -283,12 +262,9 @@ interpose p h = fix $ \y -> cataEffMember
   (h . (y .))
   (\q u -> Eff (singleton $ y . q) u)
 
--- | Inserts a bogus effect that will never be called into an @'Eff'@ effect list.
-raise :: Eff effs a -> Eff (any ': effs) a
-raise = onUnion weaken
-
-onUnion :: (forall x. Union e x -> Union f x) -> Eff e a -> Eff f a
-onUnion f = unEff
+-- | Generalize an effect to work on a larger effect stack.
+-- It does this by inserting a bogus effect that will never be used into the effect list.
+raise :: Eff r a -> Eff (arbitrary ': r) a
+raise = unEff 
   pure
-  (\q u -> Eff (singleton $ onUnion f . q) (f u))
-
+  (\q u -> Eff (singleton $ raise . q) (weaken u))

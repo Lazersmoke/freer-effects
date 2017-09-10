@@ -3,7 +3,9 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 
 -- | Generation of fresh integers as an effect.
@@ -19,6 +21,7 @@ module Control.Monad.Freer.Fresh
   where
 
 import Control.Monad.Freer
+import Control.Monad.Freer.State
 
 -- | The @'Fresh' f@ effect keeps a global counter of @f@ that you
 -- can pull fresh values from as an effect.
@@ -31,17 +34,15 @@ fresh = send Fresh
 
 -- | Handles a @'Fresh' f@ effect in the expected way. Also returns
 -- the final value of the global counter (the next to be dispensed) when it is done.
-runFresh :: Enum f => f -> Eff (Fresh f ': r) a -> Eff r (a, f)
-runFresh = handleRelayS
-  -- Put the next value in the output
-  (\s -> pure . (,s)) 
-  -- Put the next value in the output
-  (\s k Fresh -> (k $! succ s) s)
+runFresh :: forall f r a. Enum f => f -> Eff (Fresh f ': r) a -> Eff r (a, f)
+runFresh f0 = runState f0 . runFreshAsState
 
 -- | Just like @'runFresh'@, but it doesn't return the final value
 -- of the global counter at the end.
-evalFresh :: Enum f => f -> Eff (Fresh f ': r) a -> Eff r a
-evalFresh = runNatS $ \ !s -> \case
-  -- Put the next global state back in the counter,
-  -- and give the count we just got to the user.
-  Fresh -> pure (succ s,s)
+evalFresh :: forall f r a. Enum f => f -> Eff (Fresh f ': r) a -> Eff r a
+evalFresh f0 = evalState f0 . runFreshAsState
+
+-- | Implement a @'Fresh' f@ effect in terms of @'State' f@
+runFreshAsState :: forall f r a. Enum f => Eff (Fresh f ': r) a -> Eff (State f ': r) a
+runFreshAsState = reinterpret @'[State f] $ \case 
+  Fresh-> get >>= \s -> put (succ s) *> pure s

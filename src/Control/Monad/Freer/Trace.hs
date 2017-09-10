@@ -25,4 +25,4 @@ trace = tell
 
 -- | Log all the @'trace'@'d @'String'@s to stdout.
 runTrace :: Member IO r => Eff (Trace ': r) a -> Eff r a
-runTrace = runNat $ \(Tell s) -> send (putStrLn s)
+runTrace = interpret $ \(Tell s) -> send (putStrLn s)

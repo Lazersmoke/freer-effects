@@ -12,17 +12,14 @@
 module Control.Monad.Freer.Reader
   (
   -- * Reader Effect
-    Reader(..)
-
+  Reader(..)
   -- * Reader Operations
-  , ask
-  , asks
-  , local
-
+  ,ask
+  ,asks
+  ,local
   -- * Reader Handlers
-  , runReader
-   )
-  where
+  ,runReader
+  ) where
 
 import Control.Monad.Freer
 
@@ -91,4 +88,3 @@ local f m = do
     h :: (v -> Eff r a) -> Reader e v -> Eff r a
     h k Ask = k e
   interpose pure h m
-

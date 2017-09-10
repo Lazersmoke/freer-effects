@@ -15,13 +15,13 @@ import Control.Monad.Freer
 
 
 data Capitalize v where
-    Capitalize :: String -> Capitalize String
+  Capitalize :: String -> Capitalize String
 
 capitalize :: Member Capitalize r => String -> Eff r String
 capitalize = send . Capitalize
 
 runCapitalize :: Eff (Capitalize ': r) w -> Eff r w
-runCapitalize = runNat $ \case
+runCapitalize = interpret $ \case
   Capitalize s -> pure (map toUpper s)
 
 --runCapitalize' :: Eff (Capitalize ': r) w -> Eff r w

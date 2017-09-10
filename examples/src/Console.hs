@@ -31,9 +31,11 @@ data Console s where
 putStrLn' :: Member Console r => String -> Eff r ()
 putStrLn' = send . PutStrLn
 
+-- | Get a line from the user
 getLine'  :: Member Console r => Eff r String
 getLine' = send GetLine
 
+-- | Exit successfully
 exitSuccess' :: Member Console r => Eff r ()
 exitSuccess' = send ExitSuccess
 
@@ -43,7 +45,7 @@ exitSuccess' = send ExitSuccess
 -- * Getting from stdin
 -- * Exiting by doing nothing
 runConsole :: Member IO r => Eff (Console ': r) a -> Eff r a
-runConsole = runNat $ \case
+runConsole = interpret $ \case
   PutStrLn msg -> send (putStrLn msg)
   GetLine -> send getLine
   ExitSuccess -> send exitSuccess

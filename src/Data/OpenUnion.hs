@@ -147,13 +147,19 @@ type family Narrow (e :: PreordEntry) (xs :: [(Nat,[PreordEntry])]) :: [(Nat,[Pr
 type family Find' (origTarget :: [PreordEntry]) (origHaystack :: [(Nat,[PreordEntry])]) (target :: [PreordEntry]) (haystack :: [(Nat,[PreordEntry])]) :: Nat where
   -- If there is only one thing in the haystack, it must be the needle :P
   Find' _ _ _ '[ '(i,_)] = i
+  -- Disambiguate by selecting the first exact match
+  Find' _ _ e ('(i,e) ': _) = i
   -- Recursively narrow the haystack wrt the target until we end up with only one item
   Find' ot oh (e ': es) ess = Find' ot oh es (Narrow e ess)
+  {-
+  We disambiguate by selecting the first exact match now, might reverse this descision later
+  if there turns out to be a better way of doing this.
   Find' ot oh '[] es = TypeError (
     'Text "Ran out of preorder entries while narrowing: " ':<>: 'ShowType es ':$$: 
     'Text "This means we have no further information with which to disambiguate the remaining possible matches :(" ':$$:
     'Text "Original target: " ':<>: 'ShowType ot ':$$:
     'Text "Original haystack: " ':<>: 'ShowType oh)
+  -}
   Find' ot oh e '[] = TypeError (
     'Text "Exhausted all possible matches for: " ':<>: 'ShowType e ':$$:
     'Text "This means we have run out of possible matches, so the target is simply absent from the list :(" ':$$:
@@ -166,8 +172,13 @@ type Find x ys = Find' (Preord x) (PreordList ys 'Z) (Preord x) (PreordList ys '
 -- | The constraint @'MemberAt' i t r@ means that @t@ is in @r@ at the index @i@.
 class MemberAt (i :: Nat) (t :: Type -> Type) (r :: [Type -> Type]) where
 
+-- | Base case. If @t@ is at the head of @r@, then the index is 0.
 instance MemberAt 'Z t (t ': r) where
 
+-- | Inductive case. Read: @t@ being a @'Member'@ of @r@ __implies that__
+-- @t@ is also a @'Member'@ of the union of some @arbitrary@ value and @r@. 
+-- The proof of this statement is that the index of @t@ in @arbitrary ': r@
+-- will be the index of @t@ in @r@, plus 1.
 instance MemberAt n t r => MemberAt ('S n) t (x ': r) where
 
 -- | Easy way to have multiple @'Member'@s in a single effect.
@@ -239,21 +250,6 @@ decomp (Union 0 a) = Right $ unsafeCoerce a
 decomp (Union n a) = Left  $ Union (n - 1) a
 {-# INLINE [2] decomp #-}
 
--- | @'Delete'@ an element from a type-level list. This can break
--- type inference, but is otherwise safe to use. Handle with care.
-type family Delete e l :: [k] where
-  Delete e '[] = '[]
-  Delete e (e ': xs) = xs
-  Delete e (x ': xs) = x ': Delete e xs
-
--- | @'prod'@ (as in a cattle prod) an item out of any position in the @'Union'@.
--- Note that this returns a type with @'Delete'@ in it, so handle with care.
-prod :: forall t r a. Member t r => Union r a -> Either (Union (Delete t r) a) (t a)
-prod (Union n a) = case n `compare` (wordFor @(Find t r)) of
-  LT -> Left $ Union n a
-  EQ -> Right $ unsafeCoerce a
-  GT -> Left $ Union (n - 1) a
-
 -- | Specialized version of 'decomp' for efficiency.
 --
 -- /O(1)/
@@ -273,10 +269,26 @@ extract :: Union '[t] a -> t a
 extract (Union _ a) = unsafeCoerce a
 {-# INLINE extract #-}
 
+-- | @'Weakens' q@ means we can weaken a @'Union'@ by prepending @q@ to it.
+class Weakens q where
+  -- | How to perform the weakening
+  weakens :: Union r a -> Union (q ++ r) a
+
+-- | Base case: A @'Union'@ can be weakened by an empty list by simply returning
+-- the same @'Union'@ as we started with.
+instance Weakens '[] where
+  weakens = id
+
+-- | Inductive case: If a @'Union'@ can be weakened by @xs@, then it can also
+-- be weakened by @(x ': xs)@.
+instance Weakens xs => Weakens (x ': xs) where
+  -- Weaken as required for @xs@, the once more for @x@.
+  weakens = weaken . weakens @xs
+
 -- | We can add an additonal possible type constructor to any @'Union' r a@.
 -- The actual inhabitant is still in @r@, of course.
 --
 -- /O(1)/
-weaken :: Union r a -> Union (any ': r) a
+weaken :: Union r a -> Union (arbitrary ': r) a
 weaken (Union n a) = Union (n + 1) a
 {-# INLINE weaken #-}
